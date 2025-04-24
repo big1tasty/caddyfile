@@ -1,0 +1,162 @@
+#############################
+#------------Head------------
+#############################
+{
+        email e.mail@mail.it
+        crowdsec {
+                api_url http://172.30.30.1:8088
+                api_key {env.CROWDSEC_API_KEY}
+        }
+}
+
+#############################
+#-------Wildcard-Cert--------
+#############################
+
+domain.it, *.domain.it {
+tls {
+dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+            }
+}
+
+
+#############################
+#----------Proxy-------------
+#############################
+k.domain.it {
+        route {
+                crowdsec
+        reverse_proxy 172.30.30.1:8081
+        }
+        log {
+                output file /var/log/caddy/keyc-access.log {
+                roll_size 20mb
+                roll_keep 10
+                roll_keep_for 720h
+                }
+        }
+}
+
+f.domain.it {
+        @loginPath {
+                path login /accounts/login*
+        }
+        redir @loginPath /oauth/login 302
+        route {
+                crowdsec
+        reverse_proxy 172.30.30.1:8080
+        }
+        log {
+                output file /var/log/caddy/files-access.log {
+                roll_size 20mb
+                roll_keep 10
+                roll_keep_for 720h
+                }
+        }
+}
+
+o.domain.it {
+        route {
+                crowdsec
+        reverse_proxy 172.30.30.1:8083
+        }
+        log {
+                output file /var/log/caddy/only-access.log {
+                roll_size 20mb
+                roll_keep 10
+                roll_keep_for 720h
+                }
+        }
+}
+
+goaccess.domain.it {
+        # Requests to /oauth2/* are proxied to oauth2-proxy without authentication.
+        # You can't use `reverse_proxy /oauth2/* oauth2-proxy.internal:4180` here because the reverse_proxy directive has lower precedence than the handle directive.
+        handle /oauth2/* {
+                reverse_proxy 172.30.30.1:4180 {
+                        # oauth2-proxy requires the X-Real-IP and X-Forwarded-{Proto,Host,Uri} headers.
+                        # The reverse_proxy directive automatically sets X-Forwarded-{For,Proto,Host} headers.
+                        header_up X-Real-IP {remote_host}
+                        header_up X-Forwarded-Uri {uri}
+                }
+        }
+
+        # Requests to other paths are first processed by oauth2-proxy for authentication.
+        handle {
+		forward_auth 172.30.30.1:4180 {
+			uri /oauth2/auth
+	
+			# oauth2-proxy requires the X-Real-IP and X-Forwarded-{Proto,Host,Uri} headers.
+			# The forward_auth directive automatically sets the X-Forwarded-{For,Proto,Host,Method,Uri} headers.
+			header_up X-Real-IP {remote_host}
+
+			# If needed, you can copy headers from the oauth2-proxy response to the request sent to the upstream.
+                        # Make sure to configure the --set-xauthrequest flag to enable this feature.
+                        #copy_headers X-Auth-Request-User X-Auth-Request-Email
+
+                        # If oauth2-proxy returns a 401 status, redirect the client to the sign-in page.
+                        @error status 401
+                        handle_response @error {
+                                redir * /oauth2/sign_in?rd={scheme}://{host}{uri}
+                        }
+                }
+
+                # If oauth2-proxy returns a 2xx status, the request is then proxied to the upstream.
+                root * /var/www/goaccess
+                # Enable the static file server.
+                file_server
+                reverse_proxy /ws 172.30.30.1:7890
+        }
+        log {
+                output file /var/log/caddy/goaccess-access.log {
+                roll_size 20mb
+                roll_keep 10
+                roll_keep_for 720h
+                }
+        }
+}
+
+h.domain.it {
+	route {
+		crowdsec
+	        # Requests to /oauth2/* are proxied to oauth2-proxy without authentication.
+	        # You can't use `reverse_proxy /oauth2/* oauth2-proxy.internal:4180` here because the reverse_proxy directive has lower precedence than the handle directive.
+	        handle /oauth2/* {
+	                reverse_proxy 172.30.30.1:4181 {
+	                        # oauth2-proxy requires the X-Real-IP and X-Forwarded-{Proto,Host,Uri} headers.
+	                        # The reverse_proxy directive automatically sets X-Forwarded-{For,Proto,Host} headers.
+	                        header_up X-Real-IP {remote_host}
+	                        header_up X-Forwarded-Uri {uri}
+	                }
+	        }
+	
+	        # Requests to other paths are first processed by oauth2-proxy for authentication.
+	        handle {
+	                forward_auth 172.30.30.1:4181 {
+	                        uri /oauth2/auth
+	
+	                        # oauth2-proxy requires the X-Real-IP and X-Forwarded-{Proto,Host,Uri} headers.
+	                        # The forward_auth directive automatically sets the X-Forwarded-{For,Proto,Host,Method,Uri} headers.
+	                        header_up X-Real-IP {remote_host}
+	
+	                        # If needed, you can copy headers from the oauth2-proxy response to the request sent to the upstream.
+	                        # Make sure to configure the --set-xauthrequest flag to enable this feature.
+	                        #copy_headers X-Auth-Request-User X-Auth-Request-Email
+	
+	                        # If oauth2-proxy returns a 401 status, redirect the client to the sign-in page.
+	                        @error status 401
+	                        handle_response @error {
+	                                redir * /oauth2/sign_in?rd={scheme}://{host}{uri}
+	                        }
+	                }
+	                reverse_proxy 172.30.30.1:3000
+	        }
+	}
+	log {
+                output file /var/log/caddy/home-access.log {
+                roll_size 20mb
+                roll_keep 10
+                roll_keep_for 720h
+                }
+        }
+}
