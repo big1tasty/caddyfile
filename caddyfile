@@ -69,7 +69,7 @@ o.domain.it {
         }
 }
 
-goaccess.domain.it {
+g.domain.it {
         # Requests to /oauth2/* are proxied to oauth2-proxy without authentication.
         # You can't use `reverse_proxy /oauth2/* oauth2-proxy.internal:4180` here because the reverse_proxy directive has lower precedence than the handle directive.
         handle /oauth2/* {
